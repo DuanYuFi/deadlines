@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: deadlines_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-deadlines}
+      MYSQL_USER: ${MYSQL_USER:-deadlines}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-deadlines_pw}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: deadlines_api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-deadlines}
+      MYSQL_USER: ${MYSQL_USER:-deadlines}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-deadlines_pw}
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+    ports:
+      - "3000:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: deadlines_web
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:
+
