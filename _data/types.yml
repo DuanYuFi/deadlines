@@ -1,6 +1,4 @@
 ---
-- name: Conferences
-  tag: CONF
 - name: Projects
   tag: PROJ
 - name: Research
