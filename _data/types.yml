@@ -1,13 +1,11 @@
 ---
-- name: Security
-  tag: SEC
-- name: Privacy
-  tag: PRIV
-- name: Crypto
-  tag: CRYPTO
-- name: Top 4
-  tag: TOP4
-- name: Conference
+- name: Conferences
   tag: CONF
-- name: Workshop
-  tag: SHOP
+- name: Projects
+  tag: PROJ
+- name: Research
+  tag: RES
+- name: Personal
+  tag: PERS
+- name: Coursework
+  tag: COURSE
