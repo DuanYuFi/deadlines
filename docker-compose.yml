@@ -4,6 +4,7 @@ services:
   db:
     image: mysql:8.0
     container_name: deadlines_db
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pw}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-deadlines}
@@ -24,6 +25,7 @@ services:
       context: ./api
       dockerfile: Dockerfile
     container_name: deadlines_api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -36,18 +38,18 @@ services:
       MYSQL_USER: ${MYSQL_USER:-deadlines}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-deadlines_pw}
       JWT_SECRET: ${JWT_SECRET:-change-me}
-    ports:
-      - "3000:3000"
+    # Do not expose API publicly; web will proxy to it
 
   web:
     build:
       context: .
       dockerfile: Dockerfile.web
     container_name: deadlines_web
+    restart: unless-stopped
     depends_on:
       - api
     ports:
-      - "8080:80"
+      - "80:80"
 
 volumes:
   db_data:
