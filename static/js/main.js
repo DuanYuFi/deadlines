@@ -76,34 +76,25 @@ $(function() {
   {% endif %}
   {% endfor %}
 
-  // Render user-added deadlines stored in browser (via Add page)
-  (function renderUserDeadlines() {
-    try {
-      var storageKey = '{{ site.domain }}:custom_deadlines';
-      var userDeadlines = store.get(storageKey) || [];
-      if (!Array.isArray(userDeadlines)) {
-        userDeadlines = [];
-      }
-      userDeadlines.forEach(function(entry, index) {
+  // Render user-added deadlines: try API first, fallback to local storage
+  (async function renderUserDeadlines() {
+    function appendEntries(entries) {
+      entries.forEach(function(entry, index) {
         var name = entry.name || 'Untitled';
         var details = entry.details || '';
         var dateTime = entry.datetime || '';
         var tags = Array.isArray(entry.tags) ? entry.tags : [];
 
-        // Build a stable id: name + datetime + index
         var rawId = (name + '-' + dateTime + '-' + index).toLowerCase();
         var confId = rawId.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 
-        // Build DOM structure consistent with index.html markup
         var tagClasses = tags.map(function(t){ return String(t).trim(); }).join(' ');
         var $conf = $('<div>', { id: confId, class: 'conf ' + tagClasses });
         var $row = $('<div>', { class: 'row' });
         var $left = $('<div>', { class: 'col-xs-12 col-sm-6' });
         var $right = $('<div>', { class: 'col-xs-12 col-sm-6' });
 
-        $left.append(
-          $('<h2>').text(name)
-        );
+        $left.append($('<h2>').text(name));
         var metaLeft = $('<div>', { class: 'meta' });
         if (details) metaLeft.append(document.createTextNode(details));
         $left.append(metaLeft);
@@ -120,7 +111,6 @@ $(function() {
         $conf.append($row).append($('<hr>'));
         $('.conf-container').append($conf);
 
-        // Setup countdown/timestamps
         if (!dateTime) {
           $('#' + confId + ' .timer').html('TBA');
           $('#' + confId + ' .deadline-time').html('TBA');
@@ -129,10 +119,8 @@ $(function() {
         }
         var confDeadline = moment(dateTime);
         if (!confDeadline.isValid()) {
-          // fallback parse common "YYYY-MM-DD HH:mm" without timezone
           confDeadline = moment(dateTime + ':00');
         }
-        // Normalize edge minute cases similar to server data handling
         if (confDeadline.minutes() === 0) {
           confDeadline.subtract(1, 'seconds');
         }
@@ -157,8 +145,34 @@ $(function() {
         $('#' + confId + ' .deadline-time').html(confDeadline.local().format('D MMM YYYY, h:mm:ss a'));
         deadlineByConf[confId] = confDeadline;
       });
-    } catch (e) {
-      // fail silently; page should still work without user data
+    }
+
+    async function tryFetchApi() {
+      try {
+        var res = await fetch('/api/deadlines', { credentials: 'include' });
+        if (res.ok) {
+          var data = await res.json();
+          // Normalize DB rows to expected shape
+          var entries = (Array.isArray(data) ? data : []).map(function(row){
+            var tags = [];
+            try { tags = Array.isArray(row.tags) ? row.tags : JSON.parse(row.tags || '[]'); } catch(e) { tags = []; }
+            return { name: row.name, details: row.details, datetime: row.datetime, tags: tags };
+          });
+          appendEntries(entries);
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    var ok = await tryFetchApi();
+    if (!ok) {
+      try {
+        var storageKey = '{{ site.domain }}:custom_deadlines';
+        var userDeadlines = store.get(storageKey) || [];
+        if (!Array.isArray(userDeadlines)) userDeadlines = [];
+        appendEntries(userDeadlines);
+      } catch (e) {}
     }
   })();
 

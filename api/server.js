@@ -53,7 +53,7 @@ async function initSchema() {
   `);
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me';
+const JWT_SECRET = process.env.JWT_SECRET || 'DuanYuFiFlower';
 
 function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });

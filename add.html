@@ -23,6 +23,9 @@
           Add a Deadline
           <small><a href="{{ site.baseurl }}/">Back to deadlines</a></small>
         </h1>
+        <div class="clearfix" style="margin-top:10px">
+          <div id="auth-status" class="pull-right"></div>
+        </div>
         <p>Entries are stored only in your browser using local storage. Clearing site data will remove them.</p>
       </div>
 
@@ -79,6 +82,61 @@
     <script>
       (function(){
         var storageKey = '{{ site.domain }}:custom_deadlines';
+        var authToken = null;
+
+        function setAuthUI(email){
+          var $as = $('#auth-status');
+          if (email) {
+            $as.html('Signed in as ' + $('<span>').text(email).html() + ' · <a href="#" id="logout-link">Logout</a>');
+            $('#logout-link').on('click', function(e){ e.preventDefault(); logout(); });
+          } else {
+            $as.html('<a href="#" id="show-login">Login</a> / <a href="#" id="show-register">Register</a>');
+            $('#show-login').on('click', function(e){ e.preventDefault(); promptLogin(); });
+            $('#show-register').on('click', function(e){ e.preventDefault(); promptRegister(); });
+          }
+        }
+
+        function isApiAvailable(){
+          return fetch('/api/health', { credentials: 'include' }).then(function(r){ return r.ok; }).catch(function(){ return false; });
+        }
+
+        function promptLogin(){
+          var email = window.prompt('Email:');
+          if (!email) return;
+          var password = window.prompt('Password:');
+          if (!password) return;
+          fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email: email, password: password })
+          }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+            .then(function(res){
+              if (!res.ok) { alert(res.data && res.data.error || 'Login failed'); return; }
+              setAuthUI(email);
+            }).catch(function(){ alert('Login failed'); });
+        }
+
+        function promptRegister(){
+          var email = window.prompt('Email:');
+          if (!email) return;
+          var password = window.prompt('Password:');
+          if (!password) return;
+          fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email: email, password: password })
+          }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+            .then(function(res){
+              if (!res.ok) { alert(res.data && res.data.error || 'Register failed'); return; }
+              setAuthUI(email);
+            }).catch(function(){ alert('Register failed'); });
+        }
+
+        function logout(){
+          fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).finally(function(){ setAuthUI(null); });
+        }
 
         function parseTags(input) {
           if (!input) return [];
@@ -95,34 +153,70 @@
         }
 
         function refreshTable() {
-          var data = loadAll();
           var $table = $('#saved-table');
           var $empty = $('#saved-empty');
           var $tbody = $table.find('tbody');
           $tbody.empty();
-          if (data.length === 0) {
-            $table.hide();
-            $empty.show();
-            return;
-          }
-          $empty.hide();
-          $table.show();
-          data.forEach(function(item, idx){
-            var tr = $('<tr>');
-            tr.append($('<td>').text(item.name || ''));
-            tr.append($('<td>').text(item.details || ''));
-            var whenText = item.datetime ? moment(item.datetime).format('YYYY-MM-DD HH:mm') : '';
-            tr.append($('<td>').text(whenText));
-            tr.append($('<td>').text((item.tags || []).join(', ')));
-            var delBtn = $('<button>', { class: 'btn btn-xs btn-danger' }).text('Delete').on('click', function(){
-              var all = loadAll();
-              all.splice(idx, 1);
-              saveAll(all);
-              refreshTable();
-            });
-            tr.append($('<td>').append(delBtn));
-            $tbody.append(tr);
+
+          // Try DB first
+          isApiAvailable().then(function(ok){
+            if (ok) {
+              return fetch('/api/deadlines', { credentials: 'include' })
+                .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+                .then(function(res){
+                  if (!res.ok) throw new Error('not authed');
+                  var data = Array.isArray(res.data) ? res.data : [];
+                  if (data.length === 0) { $table.hide(); $empty.show(); return; }
+                  $empty.hide();
+                  $table.show();
+                  data.forEach(function(item){
+                    var tr = $('<tr>');
+                    tr.append($('<td>').text(item.name || ''));
+                    tr.append($('<td>').text(item.details || ''));
+                    var whenText = item.datetime ? moment(item.datetime).format('YYYY-MM-DD HH:mm') : '';
+                    tr.append($('<td>').text(whenText));
+                    var tags = [];
+                    try { tags = Array.isArray(item.tags) ? item.tags : JSON.parse(item.tags || '[]'); } catch(e) { tags = []; }
+                    tr.append($('<td>').text(tags.join(', ')));
+                    var delBtn = $('<button>', { class: 'btn btn-xs btn-danger' }).text('Delete').on('click', function(){
+                      fetch('/api/deadlines/' + item.id, { method: 'DELETE', credentials: 'include' })
+                        .then(function(){ refreshTable(); });
+                    });
+                    tr.append($('<td>').append(delBtn));
+                    $tbody.append(tr);
+                  });
+                })
+                .catch(function(){
+                  // fallback to local below
+                  renderLocal();
+                });
+            }
+            // Fallback: local storage
+            renderLocal();
           });
+
+          function renderLocal(){
+            var data = loadAll();
+            if (data.length === 0) { $table.hide(); $empty.show(); return; }
+            $empty.hide();
+            $table.show();
+            data.forEach(function(item, idx){
+              var tr = $('<tr>');
+              tr.append($('<td>').text(item.name || ''));
+              tr.append($('<td>').text(item.details || ''));
+              var whenText = item.datetime ? moment(item.datetime).format('YYYY-MM-DD HH:mm') : '';
+              tr.append($('<td>').text(whenText));
+              tr.append($('<td>').text((item.tags || []).join(', ')));
+              var delBtn = $('<button>', { class: 'btn btn-xs btn-danger' }).text('Delete').on('click', function(){
+                var all = loadAll();
+                all.splice(idx, 1);
+                saveAll(all);
+                refreshTable();
+              });
+              tr.append($('<td>').append(delBtn));
+              $tbody.append(tr);
+            });
+          }
         }
 
         $('#deadline-form').on('submit', function(e){
@@ -135,12 +229,29 @@
             alert('Please enter name and deadline time.');
             return;
           }
-          var entries = loadAll();
-          entries.push({ name: name, details: details, datetime: datetime, tags: tags });
-          saveAll(entries);
-          // Reset and update table
-          this.reset();
-          refreshTable();
+          // Try API first
+          isApiAvailable().then(function(ok){
+            if (ok) {
+              fetch('/api/deadlines', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ name: name, details: details, datetime: datetime, tags: tags })
+              }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+                .then(function(res){
+                  if (!res.ok) throw new Error(res.data && res.data.error || 'Save failed');
+                  $('#deadline-form')[0].reset();
+                  refreshTable();
+                }).catch(function(err){ alert(err.message || 'Save failed'); });
+            } else {
+              // Fallback to local storage
+              var entries = loadAll();
+              entries.push({ name: name, details: details, datetime: datetime, tags: tags });
+              saveAll(entries);
+              $('#deadline-form')[0].reset();
+              refreshTable();
+            }
+          });
         });
 
         $('#clear-all').on('click', function(){
@@ -151,6 +262,8 @@
         });
 
         refreshTable();
+        // Initialize auth UI optimistically (will show login/register unless cookie exists)
+        setAuthUI(null);
       })();
     </script>
   </body>
