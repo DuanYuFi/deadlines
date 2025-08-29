@@ -25,6 +25,8 @@ const pool = mysql.createPool({
   user: process.env.MYSQL_USER || 'deadlines',
   password: process.env.MYSQL_PASSWORD || 'deadlines_pw',
   database: process.env.MYSQL_DATABASE || 'deadlines',
+  // Return DATETIME/TIMESTAMP as strings to avoid implicit TZ conversion
+  dateStrings: true,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -124,9 +126,18 @@ app.post('/api/deadlines', authMiddleware, async (req, res) => {
   const userId = req.user.userId;
   const { name, details, datetime, tags } = req.body || {};
   if (!name || !datetime) return res.status(400).json({ error: 'name and datetime required' });
+  // Treat incoming datetime as a local naive value like 'YYYY-MM-DDTHH:mm'
+  let dt = String(datetime).trim().replace('T', ' ');
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(dt)) {
+    dt = dt + ':00';
+  }
+  // Remove trailing Z if any (shouldn't be present from datetime-local)
+  if (/Z$/.test(dt)) {
+    dt = dt.replace(/Z$/, '');
+  }
   const [result] = await pool.query(
     'INSERT INTO deadlines (user_id, name, details, datetime, tags) VALUES (?, ?, ?, ?, ?)',
-    [userId, name, details || null, new Date(datetime), JSON.stringify(tags || [])]
+    [userId, name, details || null, dt, JSON.stringify(tags || [])]
   );
   res.json({ id: result.insertId });
 });
@@ -135,9 +146,19 @@ app.put('/api/deadlines/:id', authMiddleware, async (req, res) => {
   const userId = req.user.userId;
   const id = Number(req.params.id);
   const { name, details, datetime, tags } = req.body || {};
+  let dt = null;
+  if (datetime) {
+    dt = String(datetime).trim().replace('T', ' ');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(dt)) {
+      dt = dt + ':00';
+    }
+    if (/Z$/.test(dt)) {
+      dt = dt.replace(/Z$/, '');
+    }
+  }
   await pool.query(
     'UPDATE deadlines SET name=?, details=?, datetime=?, tags=? WHERE id=? AND user_id=?',
-    [name, details || null, new Date(datetime), JSON.stringify(tags || []), id, userId]
+    [name, details || null, dt, JSON.stringify(tags || []), id, userId]
   );
   res.json({ ok: true });
 });
